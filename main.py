@@ -10,10 +10,17 @@ import FeatureExtractor
 import csv as CSV
 import pandas as pd
 import ast
+import math
 
 def getTrayArea(frame, trayX, trayY, segmentX, segmentY):
     frame_copied = frame.copy()
     return frame_copied[trayY : trayY + segmentX, trayX : trayX + segmentY]
+
+def euclidean_distance(point1, point2):
+    x1, y1 = point1
+    x2, y2 = point2
+    distance = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+    return distance
 
 def getValuesFromCSV(csvFile):
     data_frame = pd.read_csv(csvFile, dtype=str, keep_default_na=False, na_values=None)
@@ -27,6 +34,13 @@ def track(videoPath, csvPath):
     # print(videoPath, csvPath)
     count_brushes_rec = 0
     count_twizzers_rec = 0
+
+    switch = 0
+    holding = 0  # 0-start, 1-tweezers, 2-brush
+    number_of_frames_holding_brush = 0
+    number_of_frames_holding_tw = 0
+    avg_brush_length = []
+
     frameToYolo = getValuesFromCSV(csvPath)
     # print(f'Finished Loading Yolo Frame Analysis.')
 
@@ -112,6 +126,9 @@ def track(videoPath, csvPath):
                 segmentY, segmentX, startingX, startingY, markedFrame = arr_for_segment
                 max_segment = temp_segment_y*temp_segment_x
 
+            max_brush_length = min(euclidean_distance(point1, point2),
+                                   euclidean_distance(point1, point3)) // 10  # 1/10 size of tray
+
 
         # else:
         #     #keep on reading frames if there isnt a tray
@@ -137,7 +154,8 @@ def track(videoPath, csvPath):
 
         if brushPoint is not None:
             count_brushes_rec += 1
-            FeatureExtractor.countAmountOfTimesInCell(startingX, startingY, lastBrushPoint, brushPoint, splitX, splitY, segmentX, segmentY, countMatBrush)
+            FeatureExtractor.countAmountOfTimesInCell(startingX, startingY, lastBrushPoint, brushPoint,
+                                                      splitX, splitY, segmentX, segmentY, countMatBrush)
             last_cell = FeatureExtractor.back_to_visited_cell(brushPoint, last_cell, alredy_visited_mat_brush, splitX, splitY,
                                                               startingX, startingY, segmentX, segmentY)
 
@@ -158,7 +176,20 @@ def track(videoPath, csvPath):
             if firstFrame is not None:
                 firstFrame = cv2.circle(firstFrame, brushPoint, 1, (0, 255, 0), 2)
 
+            if lastBrushPoint != (0, 0):
+                distance = euclidean_distance(lastBrushPoint, brushPoint)
+                if distance > 0 and distance < max_brush_length:
+                    avg_brush_length.append(distance)
+
             lastBrushPoint = brushPoint
+
+            number_of_frames_holding_brush += 1
+
+            if holding == 0:
+                holding = 2
+            elif holding != 2:
+                holding = 2
+                switch += 1
 
         # if firstFrame is not None:
         #     cv2.imshow('Frame With Dots', firstFrame)
@@ -190,6 +221,13 @@ def track(videoPath, csvPath):
                 firstFrame = cv2.circle(firstFrame, twizzersPoint, 1, (0, 0, 255), 2)
 
             lastTwizzersPoint = twizzersPoint
+
+            number_of_frames_holding_tw += 1
+            if holding == 0:
+                holding = 1
+            elif holding != 1:
+                holding = 1
+                switch += 1
 
 
         if (twizzersPoint is None) & (brushPoint is None):
@@ -243,14 +281,25 @@ def track(videoPath, csvPath):
     else:
         ptwizzeringOnPaper = 0
 
-    return [countMatBrush, alredy_visited_mat_brush, pbrushingOnSand , pbrushingOnPaper, countMatTwizzers, alredy_visited_mat_twizzers, ptwizzeringOnSand, ptwizzeringOnPaper]
+    total_holding = number_of_frames_holding_brush + number_of_frames_holding_tw
+    frames_brush_per_video = number_of_frames_holding_brush / total_holding * 100
+    frames_tw_per_video = number_of_frames_holding_tw / total_holding * 100
+
+    return [countMatBrush, alredy_visited_mat_brush, pbrushingOnSand , pbrushingOnPaper, countMatTwizzers,
+            alredy_visited_mat_twizzers, ptwizzeringOnSand, ptwizzeringOnPaper,
+            switch, frames_brush_per_video, frames_tw_per_video, np.average(avg_brush_length)]
 
 
 # countMatBrush, alredy_visited_mat_brush, (counter_on_sand_brush/abs(count_brushes_rec - counter_out_of_tray_or_stable_brush))*100, (counter_on_paper_brush/abs(count_brushes_rec- counter_out_of_tray_or_stable_brush))*100, countMatTwizzers, alredy_visited_mat_twizzers, \
     # (counter_on_sand_twizzers/abs(count_twizzers_rec-counter_out_of_tray_or_stable_twizzers))*100, (counter_on_paper_twizzers/abs(count_twizzers_rec-counter_out_of_tray_or_stable_twizzers))*100
 def make_csv_file(data, path):
-    fieldnamesFirst = ['countMatBrush', 'AlreadyVisitedBrush', '%OfSandBrushes', '%OfPaperBrushes', 'countMatTwizzers', 'AlreadyVisitedTwizzers', '%OfSandTwizzers', '%OfPaperTwizzers']
-    fieldnamesLast = ['countMatBrushLast', 'AlreadyVisitedBrushLast', '%OfSandBrushesLast', '%OfPaperBrushesLast', 'countMatTwizzersLast', 'AlreadyVisitedTwizzersLast', '%OfSandTwizzersLast', '%OfPaperTwizzersLast', 'Directory']
+    fieldnamesFirst = ['countMatBrush', 'AlreadyVisitedBrush', '%OfSandBrushes', '%OfPaperBrushes',
+                       'countMatTwizzers', 'AlreadyVisitedTwizzers', '%OfSandTwizzers', '%OfPaperTwizzers',
+                       'switch', 'frames_brush_per_video', 'frames_tw_per_video', 'avg_brush_length']
+    fieldnamesLast = ['countMatBrushLast', 'AlreadyVisitedBrushLast', '%OfSandBrushesLast', '%OfPaperBrushesLast',
+                      'countMatTwizzersLast', 'AlreadyVisitedTwizzersLast', '%OfSandTwizzersLast',
+                      '%OfPaperTwizzersLast', 'switchLast', 'frames_brush_per_video_last', 'frames_tw_per_video_last',
+                      'avg_brush_length_last' 'Directory']
     # fieldnamesLast = ['countMatBrush', 'avgSTDLast', 'alreadyVisitMatLast', 'ofBrushesOnSandLast', 'ofBrushesOnPaperLast', 'listOfBrushingOrderEveryXFramesLast', 'jumpMatLast', 'subject', 'videoName']
     if os.path.exists(path):
         val = input("Do you want to re-write the csv? ")
@@ -264,20 +313,12 @@ def make_csv_file(data, path):
     for dataLine in data:
         try:
             firstData, lastData = dataLine[0]
-            videoDirectory = dataLine[1]
-            countMatBrush, AlreadyVisitedBrush, OfSandBrushes, OfPaperBrushes, countMatTwizzers, AlreadyVisitedTwizzers, OfSandTwizzers, OfPaperTwizzers = firstData
-            countMatBrushLast, AlreadyVisitedBrushLast, OfSandBrushesLast, OfPaperBrushesLast, countMatTwizzersLast, AlreadyVisitedTwizzersLast, OfSandTwizzersLast, OfPaperTwizzersLast = lastData
-            writer.writerow(
-                {'countMatBrush': countMatBrush, 'AlreadyVisitedBrush': AlreadyVisitedBrush,
-                 '%OfSandBrushes': OfSandBrushes, '%OfPaperBrushes': OfPaperBrushes,
-                 'countMatTwizzers': countMatTwizzers, 'AlreadyVisitedTwizzers': AlreadyVisitedTwizzers,
-                 '%OfSandTwizzers': OfSandTwizzers, '%OfPaperTwizzers': OfPaperTwizzers,
-                 'countMatBrushLast': countMatBrushLast,
-                 'AlreadyVisitedBrushLast': AlreadyVisitedBrushLast, '%OfSandBrushesLast': OfSandBrushesLast,
-                 '%OfPaperBrushesLast': OfPaperBrushesLast,
-                 'countMatTwizzersLast': countMatTwizzersLast,
-                 'AlreadyVisitedTwizzersLast': AlreadyVisitedTwizzersLast, '%OfSandTwizzersLast': OfSandTwizzersLast,
-                 '%OfPaperTwizzersLast': OfPaperTwizzersLast, 'Directory' : videoDirectory})
+            lastData.append(dataLine[1])
+            data_dict = {
+                **{key: value for key, value in zip(fieldnamesFirst, firstData)},
+                **{key: value for key, value in zip(fieldnamesLast, lastData)}
+            }
+            writer.writerow(data_dict)
         except:
             print("Could not load data correctly")
             continue
