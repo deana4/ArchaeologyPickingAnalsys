@@ -33,7 +33,7 @@ Make sure to replace `<video_folder_path>` and `<yolo_folder_path>` with the act
                  %OfSandBrushes, %OfPaperBrushes,
                  countMatTwizzers, 'AlreadyVisitedTwizzersMat,
                  %OfSandTwizzers, %OfPaperTwizzers, Directory
-- This features is extracted twice, once for the 
+- This features is extracted twice, once for the first_five_minutes.mp4 and one for the last_five_minutes.mp4 and concat the results into one, for each pair of videos.
 
 
 ## Important Notes
