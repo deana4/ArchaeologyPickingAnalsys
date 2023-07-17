@@ -321,7 +321,7 @@ def make_csv_file(data, path):
         if val == "no":
             return 0
 
-    csv_file = open(path + "\\features.csv", mode='w', newline='')
+    csv_file = open(path + "/features.csv", mode='w', newline='')
     writer = CSV.DictWriter(csv_file, fieldnames=fieldnamesFirst + fieldnamesLast + extra_data)
     writer.writeheader()
 
@@ -400,7 +400,8 @@ if __name__ == '__main__':
 
         videos = [file for file in os.listdir(video_dir) if file.lower().endswith(('.mp4', '.mov'))]
         csvs = [file for file in os.listdir(csv_dir) if file.lower().endswith('.csv')]
-
+        videos.sort()
+        csvs.sort()
         video_directory_name = os.path.basename(video_dir)
         csv_directory_name = os.path.basename(csv_dir)
 
