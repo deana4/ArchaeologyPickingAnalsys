@@ -288,12 +288,21 @@ def track(videoPath, csvPath):
         ptwizzeringOnPaper = 0
 
     total_holding = number_of_frames_holding_brush + number_of_frames_holding_tw
-    frames_brush_per_video = number_of_frames_holding_brush / total_holding * 100
-    frames_tw_per_video = number_of_frames_holding_tw / total_holding * 100
+    if total_holding == 0:
+        frames_brush_per_video = 0
+        frames_tw_per_video = 0
+    else:
+        frames_brush_per_video = number_of_frames_holding_brush / total_holding * 100
+        frames_tw_per_video = number_of_frames_holding_tw / total_holding * 100
+
+    if len(avg_brush_length) == 0:
+        avg_brush_length_var = 0
+    else:
+        avg_brush_length_var = np.average(avg_brush_length)
 
     return [countMatBrush, alredy_visited_mat_brush, pbrushingOnSand , pbrushingOnPaper, countMatTwizzers,
             alredy_visited_mat_twizzers, ptwizzeringOnSand, ptwizzeringOnPaper,
-            switch, frames_brush_per_video, frames_tw_per_video, np.average(avg_brush_length)]
+            switch, frames_brush_per_video, frames_tw_per_video, avg_brush_length_var]
 
 
 # countMatBrush, alredy_visited_mat_brush, (counter_on_sand_brush/abs(count_brushes_rec - counter_out_of_tray_or_stable_brush))*100, (counter_on_paper_brush/abs(count_brushes_rec- counter_out_of_tray_or_stable_brush))*100, countMatTwizzers, alredy_visited_mat_twizzers, \
