@@ -5,24 +5,58 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.manifold import TSNE
+from sklearn.metrics import normalized_mutual_info_score
+import seaborn as sns
+from scipy import stats
 
-def norm(df):
-    # Replace all NaN values with 0
+def preProc(df):
+    z_scores_tresh= 3
+    zeros_tresh = 0.7
+    df.drop(df.columns[-1], axis=1, inplace=True)
+
     df.fillna(0, inplace=True)
 
-    # Extract the numeric features
-    df = df.select_dtypes(include='number')
+    # Step 3: Convert the second last column to numerical values
+    label_mapping = {'1st': 1, '2nd': 2, '3rd': 3}
+    df['Half an hour'] = df['Half an hour'].map(label_mapping)
 
-    # Find columns with only zeros
-    zero_columns = df.columns[(df == 0).all()]
+    # Step 4: Split the data into features (X) and labels (y)
 
-    # Remove columns with only zeros from the data
-    data_filtered = df.drop(zero_columns, axis=1)
+    y = df.iloc[:, -2]  # Last column (labels)
+    X = df
+    X.drop(X.columns[-2], axis=1, inplace=True)
 
-    # Normalize or standardize the numeric features
+    # Step 5: Convert the labels into numerical values
+    label_mapping = {'yuval': 0, 'matan': 1, 'nir': 2}
+    y = y.map(label_mapping)
+
+    threshold_zeros = X.shape[0] * zeros_tresh
+    non_zero_counts = X.astype(bool).sum(axis=0)
+    features_to_drop = non_zero_counts[non_zero_counts <= threshold_zeros].index
+    X.drop(features_to_drop, axis=1, inplace=True)
+
+    outlier_indices = []
+    for label in y.unique():
+        label_indices = y[y == label].index
+        X_label = X.loc[label_indices]
+
+        # Calculate z-scores for each feature within the label group
+        z_scores = np.abs(stats.zscore(X_label, axis=0))
+
+        # Find outliers in each feature and combine the indices of all outlier rows
+        outliers = np.where(z_scores > z_scores_tresh)
+        outlier_indices.extend(label_indices[outliers[0]])
+
+    # Drop outlier rows
+    X.drop(outlier_indices, inplace=True)
+    y.drop(outlier_indices, inplace=True)
+
+    return X, y
+
+def norm(df):
     scaler = StandardScaler()
-    normalized_data = scaler.fit_transform(data_filtered)
-    return normalized_data
+    df = scaler.fit_transform(df)
+    return df
 
 def reduceDims(data, method):
     n_components = 2
@@ -37,7 +71,7 @@ def reduceDims(data, method):
 
 def Kmeans(reduced_data, k):
     # Run k-means clustering
-    kmeans = KMeans(n_clusters=k)  # Assuming 3 clusters
+    kmeans = KMeans(n_clusters=k, n_init=10)  # Assuming 3 clusters
     kmeans.fit(reduced_data)
 
     # Get the cluster labels
@@ -50,64 +84,99 @@ def Kmeans(reduced_data, k):
     plt.title('K-means Clustering')
     plt.show()
 
-def gian_df_plot(df_original, best_features, smallValues = False , t = 0.5):
-    from sklearn.preprocessing import MinMaxScaler
-    df = df_original.copy()
-    import seaborn as sns
-    sns.set_style("darkgrid")
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-    scaler = MinMaxScaler()
+def Kmeans_with_labels(reduced_data, k, real_labels):
+    # Run k-means clustering
+    kmeans = KMeans(n_clusters=k, n_init=10)  # Assuming 3 clusters
+    kmeans.fit(reduced_data)
 
-    conditions = [
-        df['Tested'] == 'matan',
-        df['Tested'] == 'yuval',
-        df['Tested'] == 'nir'
-    ]
+    # Get the cluster labels
+    cluster_labels = kmeans.labels_
 
-    choices = [1, 2, 3]
+    # Calculate accuracy using ARI or NMI
+    accuracy = calculate_accuracy(real_labels, cluster_labels)
+    print(f"Accuracy: {accuracy}")
 
-    df['full'] = np.select(conditions, choices, default=0)
+    # Plot the K-means clusters
+    plt.scatter(reduced_data[:, 0], reduced_data[:, 1], c=cluster_labels, marker='o', label='K-means Clusters')
 
-    scaled_full = pd.DataFrame(scaler.fit_transform(df[best_features + ['full']]), index=df.index, columns=best_features + ['full'])
+    # Plot the real labels
+    unique_labels = np.unique(real_labels)
+    for label in unique_labels:
+        label_indices = np.where(real_labels == label)[0]
+        plt.scatter(reduced_data[label_indices, 0], reduced_data[label_indices, 1], marker='^', label=f'Real Label {label}')
 
-    if smallValues == True:
-        for column in scaled_full.columns:
-            if column == 'full':
-                break
-            scaled_full[column] = scaled_full.loc[scaled_full[column] < t, column]
-
-    mdf_full = pd.melt(scaled_full, id_vars=['full'])
-
-    fig = plt.figure(figsize=(25,8))
-
-
-    sns.boxplot(x="variable", y="value", data=mdf_full, hue='full', hue_order=[0, 0.5, 1], width=0.4,
-                notch=False, showfliers=False, dodge=True, medianprops={"color": "black"}, boxprops={'alpha': 0.5},
-                palette={0: "lightcoral", 0.5: "darkturquoise", 1: "mediumseagreen"})
-
-
-    sns.swarmplot(x="variable", y="value", data=mdf_full, hue='full', hue_order=[0, 0.5, 1], dodge=True, alpha = 0.6 , zorder = 1, color = "black")
-    # sns.stripplot(x="variable", y="value", data=mdf_full, hue='full', hue_order=[0, 0.5, 1], jitter=0, dodge=True, alpha = 0.6 , zorder = 1, color = "black")
-
-    plt.xlabel('Features',labelpad=20)
-    plt.ylabel('Scaled value',labelpad=20)
-    plt.title('Best features Matan vs Yuval', pad=20, fontweight='bold')
-
-    matan_patch = mpatches.Patch(color='lightcoral', label='Matan', edgecolor='black', linewidth=1)
-    yuval_patch = mpatches.Patch(color='darkturquoise', label='Yuval', edgecolor='black', linewidth=1)
-    nir_patch = mpatches.Patch(color='mediumseagreen', label='Nir', edgecolor='black', linewidth=1)
-
-    # Show the legend
-    plt.legend(title='Group', loc='upper right', handles=[matan_patch, yuval_patch, nir_patch])
-
+    plt.xlabel('Dimension 1')
+    plt.ylabel('Dimension 2')
+    plt.title('K-means Clustering with Real Labels')
+    plt.legend()
     plt.show()
+
+def plot_real_labels(reduced_data, real_labels):
+    unique_labels = np.unique(real_labels)
+    for label in unique_labels:
+        label_indices = np.where(real_labels == label)[0]
+        plt.scatter(reduced_data[label_indices, 0], reduced_data[label_indices, 1], marker='^',
+                    label=f'Real Label {label}')
+
+    plt.xlabel('Dimension 1')
+    plt.ylabel('Dimension 2')
+    plt.title('Real Labels')
+    plt.legend()
+    plt.show()
+def calculate_accuracy(real_labels, cluster_labels):
+    nmi = normalized_mutual_info_score(real_labels, cluster_labels)
+    return nmi
+def find_real_means(X, y):
+    unique_labels = np.unique(y)
+    real_means = []
+    for label in unique_labels:
+        label_indices = np.where(y == label)[0]
+        label_data = X[label_indices]
+        label_mean = np.mean(label_data, axis=0)
+        real_means.append(label_mean)
+    return np.array(real_means)
+def Kmeans_with_init(reduced_data, k, real_means):
+    # Initialize K-means with the real means
+    kmeans = KMeans(n_clusters=k, init=real_means, n_init=10)
+    kmeans.fit(reduced_data)
+
+    # Get the cluster labels and plot the clusters
+    cluster_labels = kmeans.labels_
+    plt.scatter(reduced_data[:, 0], reduced_data[:, 1], c=cluster_labels, marker='o', label='K-means Clusters')
+    plt.xlabel('Dimension 1')
+    plt.ylabel('Dimension 2')
+    plt.title('K-means Clustering with Real Labels and Initialization')
+    plt.legend()
+    plt.show()
+def plot_boxplot(X, y, feature_list):
+    # Set up the Seaborn style
+    sns.set(style="whitegrid")
+
+    # Filter the DataFrame to include only the least important features
+    X_filtered = X[feature_list]
+
+    # Iterate through each feature and create a boxplot for each one
+    for feature in X_filtered.columns:
+        plt.figure(figsize=(8, 6))
+        sns.boxplot(x=y, y=X_filtered[feature], palette='viridis')
+        plt.title(f'Boxplot for Least Important Feature: {feature}')
+        plt.xlabel('Label')
+        plt.ylabel('Feature Value')
+        plt.show()
 
 if __name__ == '__main__':
     # Read the CSV file
     df = pd.read_csv("full_features.csv")
-    normalized_data = norm(df)
-    reduce_data = reduceDims(normalized_data, 'tsne')
+    X, y = preProc(df)
+    X_norm = norm(X)
+    reduce_data = reduceDims(X_norm, 'tsne')
+    plot_real_labels(reduce_data, y)
     k=3
     Kmeans(reduce_data, k)
-    gian_df_plot(df, ['frames_brush_per_video', '%OfPaperTwizzers', 'switch', 'frames_brush_per_video', 'frames_tw_per_video', 'avg_brush_length'])
+    Kmeans_with_labels(reduce_data, k, y)
+    plot_features = ['avg_brush_length']
+    plot_boxplot(X, y, plot_features)
+    real_means = find_real_means(reduce_data, y)
+    Kmeans_with_init(reduce_data, k, real_means)
+
+
